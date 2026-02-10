@@ -1,91 +1,136 @@
 """
-Utility Module
+Utilities Module
 
-Handles JSON I/O and validation. No business logic.
+Input/Output and validation functions:
+- Load JSON files
+- Save solution.json
+- Validate solution structure
 """
 
 import json
-from pathlib import Path
+import os
 from typing import Dict, List, Tuple
 
 
 def load_inputs() -> Tuple[Dict, Dict, Dict]:
     """
-    Load all input JSON files.
+    Load all input files.
     
     Returns:
-        Tuple of (map_data, sensor_data, objectives_data)
+        (map_data, sensor_data, objectives_data)
     """
-    map_data = _load_json("public_map.json")
-    sensor_data = _load_json("sensor_data.json")
-    objectives_data = _load_json("objectives.json")
+    # Load public map
+    with open('map2/public_map_2.json', 'r') as f:
+        map_data = json.load(f)
+    
+    # Load sensor data
+    with open('map2/sensor_data_2.json', 'r') as f:
+        sensor_data = json.load(f)
+    
+    # Load objectives
+    with open('map2/objectives_2.json', 'r') as f:
+        objectives_data = json.load(f)
     
     return map_data, sensor_data, objectives_data
 
 
 def save_solution(solution: Dict[str, List[int]]):
     """
-    Save solution to JSON file.
+    Save solution to solution.json.
     
     Args:
-        solution: Dictionary mapping vehicle_id -> path
+        solution: Dictionary mapping vehicle_id -> path (list of nodes)
+    
+    Output format:
+        {
+            "truck1": [0, 0, 1, 2, ...],
+            "truck2": [0, 0, 0, 3, ...],
+            "truck3": [...],
+            "drone1": [...],
+            "drone2": [...]
+        }
     """
-    with open("solution.json", 'w') as f:
+    with open('solution.json', 'w') as f:
         json.dump(solution, f, indent=2)
 
 
-def validate_solution(solution: Dict[str, List[int]], graph, T: int) -> Tuple[bool, List[str]]:
+def validate_solution(solution: Dict[str, List[int]], 
+                      graph, T: int) -> Tuple[bool, List[str]]:
     """
-    Validate solution against constraints.
+    Validate solution structure and constraints.
     
     Args:
-        solution: Solution dictionary
+        solution: Vehicle paths
         graph: Graph instance
         T: Total time steps
-        
+    
     Returns:
-        Tuple of (is_valid, list_of_errors)
+        (is_valid, list_of_errors)
     """
     errors = []
     
-    for vehicle_id, path in solution.items():
-        vehicle_type = "truck" if "truck" in vehicle_id else "drone"
+    # Expected vehicles
+    expected_vehicles = ['truck1', 'truck2', 'truck3', 'drone1', 'drone2']
+    
+    for vehicle_id in expected_vehicles:
+        if vehicle_id not in solution:
+            errors.append(f"Missing vehicle: {vehicle_id}")
+            continue
+        
+        path = solution[vehicle_id]
+        vehicle_type = 'truck' if 'truck' in vehicle_id else 'drone'
         
         # Check path length
         if len(path) != T:
             errors.append(f"{vehicle_id}: Path length {len(path)} != {T}")
-            continue
         
-        # Check valid transitions
+        # Check path validity
         for t in range(len(path) - 1):
             current = path[t]
             next_node = path[t + 1]
             
-            # Waiting is valid
+            # Waiting is always valid
             if current == next_node:
                 continue
             
-            # Check edge exists
+            # Check if edge exists
             if not graph.is_valid_edge(current, next_node, vehicle_type):
                 road_type = graph.get_road_type(current, next_node)
                 if road_type == -1:
-                    errors.append(f"{vehicle_id}@t={t}: No road {current}→{next_node}")
-                elif vehicle_type == "truck" and road_type == 0:
-                    errors.append(f"{vehicle_id}@t={t}: Truck can't fly {current}→{next_node}")
+                    errors.append(
+                        f"{vehicle_id} at t={t}: No road from {current} to {next_node}"
+                    )
+                elif road_type == 0 and vehicle_type == 'truck':
+                    errors.append(
+                        f"{vehicle_id} at t={t}: Truck cannot use airspace (road type 0)"
+                    )
+    
+    is_valid = len(errors) == 0
+    return is_valid, errors
+
+
+def print_solution_stats(solution: Dict[str, List[int]], 
+                        vehicles: List[Dict]):
+    """
+    Print detailed statistics about the solution.
+    
+    Args:
+        solution: Vehicle paths
+        vehicles: Vehicle state data from planner
+    """
+    print("\n" + "=" * 60)
+    print("SOLUTION STATISTICS")
+    print("=" * 60)
+    
+    for vehicle in vehicles:
+        vid = vehicle['id']
+        print(f"\n{vid}:")
+        print(f"  Path length: {len(solution[vid])}")
+        print(f"  Travel cost: {vehicle['total_cost']:.2f}")
+        print(f"  Points earned: {vehicle['total_points']:.2f}")
+        print(f"  Objectives: {len(vehicle['objectives'])}")
         
-        # Check valid nodes
-        for t, node in enumerate(path):
-            if node < 0 or node >= graph.num_nodes:
-                errors.append(f"{vehicle_id}@t={t}: Invalid node {node}")
-    
-    return len(errors) == 0, errors
-
-
-def _load_json(filename: str) -> Dict:
-    """Load JSON file with error handling."""
-    filepath = Path(filename)
-    if not filepath.exists():
-        raise FileNotFoundError(f"File not found: {filename}")
-    
-    with open(filepath, 'r') as f:
-        return json.load(f)
+        if vehicle['objectives']:
+            print(f"  Completed:")
+            for obj in vehicle['objectives']:
+                print(f"    - Node {obj['node']}: {obj['points']} points")

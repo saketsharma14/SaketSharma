@@ -30,7 +30,7 @@ class Planner:
             cost_calc: CostCalculator instance
             start_node: Starting node for all vehicles
             objectives: List of objective dicts
-            late_penalty: Points lost per time step late
+            late_penalty: Points lost per time step late (default/global)
             T: Total time steps
         """
         self.graph = graph
@@ -64,7 +64,7 @@ class Planner:
         # Build full-length paths
         solution = {}
         for vehicle in self.vehicles:
-            # Extend to T steps
+            # Extend to T steps by waiting at current location
             while len(vehicle['path']) < self.T:
                 vehicle['path'].append(vehicle['current_node'])
             
@@ -176,20 +176,23 @@ class Planner:
             # Update vehicle path (skip first node, already there)
             for node in path[1:]:
                 if node == best_vehicle['current_node']:
-                    # Waiting
+                    # Waiting - zero cost
                     best_vehicle['path'].append(node)
                     best_vehicle['current_time'] += 1
                 else:
-                    # Moving
+                    # Moving - calculate cost at CURRENT time (before moving)
                     edge_cost = self.cost_calc.get_cost(
                         self.graph.get_road_type(best_vehicle['current_node'], node),
-                        best_vehicle['current_time'],
+                        best_vehicle['current_time'],  # CRITICAL: Use time BEFORE move
                         best_vehicle['type']
                     )
+                    
+                    # Update path and state
                     best_vehicle['path'].append(node)
+                    if edge_cost is not None:
+                        best_vehicle['total_cost'] += edge_cost
                     best_vehicle['current_node'] = node
                     best_vehicle['current_time'] += 1
-                    best_vehicle['total_cost'] += edge_cost if edge_cost else 0
             
             best_vehicle['total_points'] += points
             best_vehicle['objectives'].append(obj)
@@ -231,18 +234,19 @@ class Planner:
                 continue
             visited[state] = g
             
-            # Option 1: Wait (no cost)
+            # Option 1: Wait (zero cost)
             heapq.heappush(pq, (g, g, node, time + 1, path + [node]))
             
-            # Option 2: Move
+            # Option 2: Move to neighbors
             for next_node, road_type in self.graph.get_neighbors(node, vehicle_type):
+                # Get edge cost at CURRENT time (before moving)
                 edge_cost = self.cost_calc.get_cost(road_type, time, vehicle_type)
                 
                 if edge_cost is None:
                     continue
                 
                 new_g = g + edge_cost
-                new_f = new_g  # Simple heuristic (Dijkstra)
+                new_f = new_g  # Simple heuristic (Dijkstra-like)
                 
                 heapq.heappush(pq, (
                     new_f,
@@ -265,14 +269,15 @@ class Planner:
         Returns:
             Points earned (0 if missed)
         """
+        # Check validity
         if arrival < obj['release'] or arrival > obj['deadline']:
             return 0.0
         
-        if arrival == obj['release']:
-            return obj['points']
+        # Get late penalty (use objective-specific if available, else global)
+        penalty_per_step = obj.get('late_penalty_per_step', self.late_penalty)
         
-        # Late penalty
+        # Calculate score with late penalty
         lateness = arrival - obj['release']
-        points = obj['points'] - (self.late_penalty * lateness)
+        points = obj['points'] - (penalty_per_step * lateness)
         
         return max(0.0, points)

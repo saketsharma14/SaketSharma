@@ -1,5 +1,7 @@
-"""
-Modules package for Vehicle Routing Optimization.
-"""
-
-__all__ = ['utils', 'graph', 'cost', 'planner']
+# No external dependencies required
+# Standard library only:
+# - json
+# - heapq
+# - typing
+# - sys
+# - os

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Vehicle Routing Optimization - Main Entry Point
-
 Orchestrates the workflow without containing business logic.
 """
 
@@ -20,7 +19,6 @@ def main():
     3. Run planner
     4. Validate and save
     """
-    
     print("=" * 60)
     print("Vehicle Routing Optimization System")
     print("=" * 60)
@@ -70,13 +68,18 @@ def main():
     print("\n[4/4] Saving solution...")
     try:
         is_valid, errors = validate_solution(solution, graph, map_data['T'])
+        
         if not is_valid:
             print("  ⚠ Warning: Solution has validation errors:")
             for error in errors[:3]:
                 print(f"    - {error}")
+            if len(errors) > 3:
+                print(f"    ... and {len(errors) - 3} more errors")
         
+        # Save solution.json
         save_solution(solution)
         print(f"  ✓ Solution saved to solution.json")
+        
     except Exception as e:
         print(f"  ✗ Error saving solution: {e}")
         sys.exit(1)
